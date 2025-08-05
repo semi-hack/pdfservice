@@ -745,8 +745,8 @@ async function generatePDF(htmlContent) {
       ],
     };
 
-    if (process.env.GOOGLE_CHROME_BIN) {
-      launchOptions.executablePath = process.env.GOOGLE_CHROME_BIN;
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+      launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
     }
 
     browser = await puppeteer.launch({ headless: "new" });
