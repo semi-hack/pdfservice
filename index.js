@@ -7,8 +7,10 @@ const { v2: cloudinary } = require("cloudinary");
 const multer = require("multer");
 const cors = require("cors");
 const bodyParser = require("body-parser");
-const fs = require("fs").promises;
+const fs = require("fs");
 const path = require("path");
+const pdf = require("html-pdf");
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -229,9 +231,9 @@ function generateHTMLTemplate(formData) {
     <!-- Page 1 -->
     <div class="header">
         <div class="logo">
-            <span style="color: #DAA520; font-size: 24px;">🤝</span>
-            <div style="font-size: 18px; color: #228B22; font-weight: bold;">Fertility & <span style="color: #4169E1;">Cryogenics</span></div>
-            <div style="font-size: 18px; font-weight: bold;">Lab</div>
+            <img src="https://res.cloudinary.com/duqphnggn/image/upload/v1754399025/fclab-documents/fcl-logo-A%CC%82_A%CC%83__2_ms4dex.jpg" 
+                 alt="Fertility & Cryogenics Lab Logo" 
+                 style="max-width: 200px; max-height: 80px; margin-bottom: 15px;">
         </div>
         
         <div class="clinic-info">
@@ -732,81 +734,63 @@ async function uploadSignatureToCloudinary(signatureBase64, clientName) {
 
 // Generate PDF from HTML
 async function generatePDF(htmlContent) {
-  let browser;
-
-  try {
-    // Try different launch configurations for different environments
-    const launchOptions = {
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-      ],
+  return new Promise((resolve, reject) => {
+    const options = {
+      format: 'A4',
+      border: {
+        top: '0.5in',
+        right: '0.5in',
+        bottom: '0.5in',
+        left: '0.5in'
+      },
+      timeout: 30000,
+      renderDelay: 1000,
+      quality: '75',
+      type: 'pdf',
+      zoomFactor: 1,
     };
 
-    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-      launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-    }
-
-    browser = await puppeteer.launch({ headless: "new" });
-    const page = await browser.newPage();
-
-    await page.setContent(htmlContent, { waitUntil: "domcontentloaded" });
-
-    await page.waitForTimeout(1000);
-
-    const pdf = await page.pdf({
-      format: "A4",
-      printBackground: true,
-      margin: {
-        top: "0.5in",
-        right: "0.5in",
-        bottom: "0.5in",
-        left: "0.5in",
-      },
-    });
-
-    return pdf;
-  } catch (error) {
-    console.error("Puppeteer launch error:", error.message);
-
-    if (!browser) {
-      try {
-        console.log("Trying alternative Puppeteer configuration...");
-        browser = await puppeteer.launch({
-          headless: true,
-          args: ["--no-sandbox", "--disable-setuid-sandbox"],
-          product: "chrome",
-        });
-
-        const page = await browser.newPage();
-        await page.setContent(htmlContent, { waitUntil: "domcontentloaded" });
-        await page.waitForTimeout(1000);
-
-        const pdf = await page.pdf({
-          format: "A4",
-          printBackground: true,
-          margin: {
-            top: "0.5in",
-            right: "0.5in",
-            bottom: "0.5in",
-            left: "0.5in",
-          },
-        });
-
-        return pdf;
-      } catch (secondError) {
-        console.error("Second Puppeteer attempt failed:", secondError.message);
-        throw new Error(`Failed to generate PDF: ${secondError.message}`);
+    pdf.create(htmlContent, options, (error, result) => {
+      if (error) {
+        console.error('html-pdf error:', error);
+        reject(new Error(`Failed to generate PDF: ${error.message}`));
+        return;
       }
-    }
-    throw error;
-  } finally {
-    if (browser) {
-      await browser.close();
-    }
-  }
+
+      const tempFilePath = result.filename;
+      const targetDir = path.join(__dirname, 'generated-pdfs');
+      
+      // Create directory if it doesn't exist
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+
+      const targetPath = path.join(targetDir, `document-${Date.now()}.pdf`);
+
+      // Read temp file, save copy to target folder, then resolve buffer
+      fs.readFile(tempFilePath, (readError, buffer) => {
+        if (readError) {
+          reject(new Error(`Failed to read PDF: ${readError.message}`));
+          return;
+        }
+
+        // Save copy to persistent storage
+        fs.writeFile(targetPath, buffer, (writeError) => {
+          if (writeError) {
+            console.error('⚠️ PDF save failed (buffer still available):', writeError);
+          } else {
+            console.log('✅ PDF saved to:', targetPath);
+          }
+
+          // Clean up temp file regardless of save result
+          fs.unlink(tempFilePath, (unlinkError) => {
+            if (unlinkError) console.error('⚠️ Temp cleanup failed:', unlinkError);
+            resolve(buffer); // Resolve with PDF buffer
+          });
+        });
+      });
+    });
+  });
 }
 
 async function sendEmailWithPDF(email, pdfBuffer, clientName) {
