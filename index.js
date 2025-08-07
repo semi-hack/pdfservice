@@ -42,7 +42,7 @@ cloudinary.config({
 
 // Configure Nodemailer
 const transporter = nodemailer.createTransport({
-  service: "gmail", // or your email service
+  service: "gmail", 
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
@@ -733,7 +733,7 @@ async function uploadSignatureToCloudinary(signatureBase64, clientName) {
 }
 
 // Generate PDF from HTML
-async function generatePDF(htmlContent) {
+async function generatePDF(htmlContent, clientName) {
   return new Promise((resolve, reject) => {
     const options = {
       format: 'A4',
@@ -765,7 +765,7 @@ async function generatePDF(htmlContent) {
         fs.mkdirSync(targetDir, { recursive: true });
       }
 
-      const targetPath = path.join(targetDir, `document-${Date.now()}.pdf`);
+      const targetPath = path.join(targetDir, `${clientName}-${new Date().toISOString()}.pdf`);
 
       // Read temp file, save copy to target folder, then resolve buffer
       fs.readFile(tempFilePath, (readError, buffer) => {
@@ -842,7 +842,7 @@ app.post("/api/submit-registration", async (req, res) => {
     let idDocumentUrl = "";
     if (formData.idDocument) {
       try {
-        const result = await cloudinary.uploader.upload(formData.idDocument, {
+        const result = await cloudinary.uploader.upload(formData.signature, {
           folder: "fclab-documents",
           public_id: `${formData.firstName}_${
             formData.lastName
@@ -903,19 +903,19 @@ app.post("/api/submit-registration", async (req, res) => {
     const htmlContent = generateHTMLTemplate(pdfFormData);
 
     // Generate PDF
-    const pdfBuffer = await generatePDF(htmlContent);
+    const pdfBuffer = await generatePDF(htmlContent, clientName);
 
     // Send email with PDF
     await sendEmailWithPDF(formData.email, pdfBuffer, clientName);
 
-    res.json({
-      success: true,
-      message:
-        "Registration submitted successfully. Agreement sent to your email.",
-      clientName: clientName,
-      email: formData.email,
-      idDocumentUrl: idDocumentUrl,
-    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition", 
+      `inline; filename="${clientName}_Agreement.pdf"`
+    );
+    
+    // Send the PDF buffer directly
+    res.send(pdfBuffer);
   } catch (error) {
     console.error("Error processing registration:", error);
     res.status(500).json({
@@ -930,78 +930,58 @@ app.post("/generate-agreement", async (req, res) => {
     const formData = req.body;
 
     // Validate required fields
-    if (!formData.clientName || !formData.clientEmail) {
+    if (!formData.firstName || !formData.email) {
       return res.status(400).json({
-        error: "Client name and email are required",
+        error: "First name and email are required",
       });
     }
 
-    // Upload signatures to Cloudinary if provided
+    // Upload signature to Cloudinary if provided
     let signatureUrl = "";
-    let partnerSignatureUrl = "";
-    let parentGuardianSignatureUrl = "";
 
-    // if (formData.clientSignature) {
-    //   signatureUrl = await uploadSignatureToCloudinary(
-    //     formData.clientSignature,
-    //     formData.clientName
-    //   );
-    // }
+    if (formData.signature) {
+      signatureUrl = await uploadSignatureToCloudinary(
+        formData.signature,
+        `${formData.firstName}_${formData.lastName || ''}`
+      );
+    }
 
-    // if (formData.partnerSignature && formData.partnerName) {
-    //   partnerSignatureUrl = await uploadSignatureToCloudinary(
-    //     formData.partnerSignature,
-    //     formData.partnerName
-    //   );
-    // }
-
-    // if (formData.parentGuardianSignature && formData.isMinor) {
-    //   parentGuardianSignatureUrl = await uploadSignatureToCloudinary(
-    //     formData.parentGuardianSignature,
-    //     formData.parentGuardianName || "Parent_Guardian"
-    //   );
-    // }
-
-    // Add signature URLs to form data
+    // Add signature URL to form data
     const updatedFormData = {
       ...formData,
       signatureUrl,
-      partnerSignatureUrl,
-      parentGuardianSignatureUrl,
     };
 
     // Generate HTML content
     const htmlContent = generateHTMLTemplate(updatedFormData);
 
     // Generate PDF
-    const pdfBuffer = await generatePDF(htmlContent);
+    const clientName = `${formData.firstName}_${formData.lastName || ''}`.replace(/\s+/g, '_');
+    const pdfBuffer = await generatePDF(htmlContent, clientName);
 
-    // Send email with PDF
-    await sendEmailWithPDF(
-      formData.clientEmail,
-      pdfBuffer,
-      formData.clientName
-    );
+    // Send email with PDF (optional - you can remove this if not needed)
+    try {
+      await sendEmailWithPDF(
+        formData.email,
+        pdfBuffer,
+        `${formData.firstName} ${formData.lastName || ''}`
+      );
+      console.log('✅ Email sent successfully');
+    } catch (emailError) {
+      console.error('⚠️ Email sending failed:', emailError);
+      // Continue anyway - don't fail the whole process
+    }
 
-    // Return success response with PDF
+    // Set headers to display PDF in browser
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${formData.clientName.replace(
-        /\s+/g,
-        "_"
-      )}_Storage_Agreement.pdf"`
+      "Content-Disposition", 
+      `inline; filename="${clientName}_Agreement.pdf"`
     );
+    
+    // Send the PDF buffer directly
+    res.send(pdfBuffer);
 
-    res.json({
-      success: true,
-      message: "Agreement generated and sent successfully",
-      signatureUrls: {
-        client: signatureUrl,
-        partner: partnerSignatureUrl,
-        parentGuardian: parentGuardianSignatureUrl,
-      },
-    });
   } catch (error) {
     console.error("Error generating agreement:", error);
     res.status(500).json({

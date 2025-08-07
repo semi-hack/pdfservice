@@ -227,6 +227,124 @@
             color: #721c24;
         }
 
+        /* Signature Modal Styles */
+        .signature-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .signature-modal-content {
+            background-color: #fff;
+            margin: 5% auto;
+            padding: 0;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            position: relative;
+        }
+
+        .signature-header {
+            padding: 20px;
+            border-bottom: 1px solid #e9ecef;
+            text-align: center;
+        }
+
+        .signature-header h2 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+            margin: 0;
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .close-btn:hover {
+            color: #000;
+        }
+
+        .signature-body {
+            padding: 20px;
+        }
+
+        .signature-canvas-container {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            background-color: #fafafa;
+        }
+
+        #signatureCanvas {
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            cursor: crosshair;
+            background-color: white;
+            max-width: 100%;
+            height: auto;
+        }
+
+        .signature-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: space-between;
+        }
+
+        .clear-btn {
+            flex: 1;
+            padding: 12px;
+            background-color: #6c757d;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .clear-btn:hover {
+            background-color: #5a6268;
+        }
+
+        .confirm-btn {
+            flex: 2;
+            padding: 12px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+
+        .confirm-btn:hover {
+            background-color: #3367d6;
+        }
+
+        .confirm-btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
         @media (max-width: 768px) {
             .form-row {
                 flex-direction: column;
@@ -241,6 +359,16 @@
             .title {
                 margin-left: 0;
                 margin-top: 15px;
+            }
+
+            .signature-modal-content {
+                margin: 10% auto;
+                width: 95%;
+            }
+
+            #signatureCanvas {
+                width: 100%;
+                height: 200px;
             }
         }
     </style>
@@ -319,50 +447,189 @@
         </div>
     </div>
 
+    <!-- Signature Modal -->
+    <div id="signatureModal" class="signature-modal">
+        <div class="signature-modal-content">
+            <div class="signature-header">
+                <span class="close-btn" id="closeModal">&times;</span>
+                <h2>Please sign to confirm</h2>
+            </div>
+            <div class="signature-body">
+                <div class="signature-canvas-container">
+                    <canvas id="signatureCanvas" width="440" height="200"></canvas>
+                </div>
+                <div class="signature-buttons">
+                    <button type="button" class="clear-btn" id="clearSignature">Clear</button>
+                    <button type="button" class="confirm-btn" id="confirmSignature" disabled>Confirm & Submit</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // Global variables
+        let signaturePad;
+        let formData = null;
+        let isDrawing = false;
+        let hasSignature = false;
+
+        // Initialize signature canvas
+        function initSignatureCanvas() {
+            const canvas = document.getElementById('signatureCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Set canvas size
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = 440;
+            canvas.height = 200;
+            
+            // Set drawing styles
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            // Mouse events
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseout', stopDrawing);
+            
+            // Touch events for mobile
+            canvas.addEventListener('touchstart', handleTouch);
+            canvas.addEventListener('touchmove', handleTouch);
+            canvas.addEventListener('touchend', stopDrawing);
+            
+            function startDrawing(e) {
+                isDrawing = true;
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                
+                ctx.beginPath();
+                ctx.moveTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+            }
+            
+            function draw(e) {
+                if (!isDrawing) return;
+                
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                
+                ctx.lineTo((e.clientX - rect.left) * scaleX, (e.clientY - rect.top) * scaleY);
+                ctx.stroke();
+                
+                hasSignature = true;
+                updateConfirmButton();
+            }
+            
+            function stopDrawing() {
+                isDrawing = false;
+                ctx.beginPath();
+            }
+            
+            function handleTouch(e) {
+                e.preventDefault();
+                const touch = e.touches[0];
+                const mouseEvent = new MouseEvent(e.type === 'touchstart' ? 'mousedown' : 
+                                                e.type === 'touchmove' ? 'mousemove' : 'mouseup', {
+                    clientX: touch.clientX,
+                    clientY: touch.clientY
+                });
+                canvas.dispatchEvent(mouseEvent);
+            }
+        }
+
+        function updateConfirmButton() {
+            const confirmBtn = document.getElementById('confirmSignature');
+            confirmBtn.disabled = !hasSignature;
+        }
+
+        function clearSignature() {
+            const canvas = document.getElementById('signatureCanvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            hasSignature = false;
+            updateConfirmButton();
+        }
+
+        function getSignatureDataURL() {
+            const canvas = document.getElementById('signatureCanvas');
+            return canvas.toDataURL('image/png');
+        }
+
         // File upload handling
         document.getElementById('idDocument').addEventListener('change', function(e) {
             const fileName = e.target.files[0] ? e.target.files[0].name : 'No file chosen';
             document.querySelector('.file-name').textContent = fileName;
         });
 
-        // Form submission
+        // Form submission - show signature modal
         document.getElementById('registrationForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
+            // Store form data
+            const form = new FormData(this);
+            formData = {
+                firstName: form.get('firstName'),
+                middleName: form.get('middleName'),
+                lastName: form.get('lastName'),
+                dateOfBirth: form.get('dateOfBirth'),
+                address: form.get('address'),
+                phone: form.get('phone'),
+                email: form.get('email')
+            };
+
+            // Handle file upload if present
+            const fileInput = document.getElementById('idDocument');
+            if (fileInput.files[0]) {
+                const file = fileInput.files[0];
+                const reader = new FileReader();
+                
+                formData.idDocument = await new Promise((resolve) => {
+                    reader.onload = () => resolve(reader.result);
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            // Show signature modal
+            showSignatureModal();
+        });
+
+        function showSignatureModal() {
+            const modal = document.getElementById('signatureModal');
+            modal.style.display = 'block';
+            initSignatureCanvas();
+            clearSignature();
+        }
+
+        function hideSignatureModal() {
+            const modal = document.getElementById('signatureModal');
+            modal.style.display = 'none';
+        }
+
+        // Modal event listeners
+        document.getElementById('closeModal').addEventListener('click', hideSignatureModal);
+        document.getElementById('clearSignature').addEventListener('click', clearSignature);
+
+        // Confirm signature and submit form
+        document.getElementById('confirmSignature').addEventListener('click', async function() {
+            if (!hasSignature) return;
+
             const submitBtn = document.getElementById('submitBtn');
             const loading = document.getElementById('loading');
             const alert = document.getElementById('alert');
             
-            // Show loading state
+            // Hide modal and show loading
+            hideSignatureModal();
             submitBtn.disabled = true;
             loading.style.display = 'block';
             alert.style.display = 'none';
-            
-            try {
-                // Get form data
-                const formData = new FormData(this);
-                const data = {
-                    firstName: formData.get('firstName'),
-                    middleName: formData.get('middleName'),
-                    lastName: formData.get('lastName'),
-                    dateOfBirth: formData.get('dateOfBirth'),
-                    address: formData.get('address'),
-                    phone: formData.get('phone'),
-                    email: formData.get('email')
-                };
 
-                // Handle file upload if present
-                const fileInput = document.getElementById('idDocument');
-                if (fileInput.files[0]) {
-                    const file = fileInput.files[0];
-                    const reader = new FileReader();
-                    
-                    data.idDocument = await new Promise((resolve) => {
-                        reader.onload = () => resolve(reader.result);
-                        reader.readAsDataURL(file);
-                    });
-                }
+            try {
+                // Add signature to form data
+                formData.signature = getSignatureDataURL();
 
                 // Send to API
                 const response = await fetch('/api/submit-registration', {
@@ -370,16 +637,31 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify(data)
+                    body: JSON.stringify(formData)
                 });
 
-                const result = await response.json();
-
                 if (response.ok) {
-                    showAlert('Registration submitted successfully! Check your email for the agreement.', 'success');
-                    document.getElementById('registrationForm').reset();
-                    document.querySelector('.file-name').textContent = 'No file chosen';
+                    // Check if response is PDF
+                    const contentType = response.headers.get('content-type');
+                    
+                    if (contentType && contentType.includes('application/pdf')) {
+                        // Handle PDF response - open in new tab
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        window.open(url, '_blank');
+                        
+                        showAlert('Agreement generated successfully! PDF opened in new tab. Check your email for a copy.', 'success');
+                        document.getElementById('registrationForm').reset();
+                        document.querySelector('.file-name').textContent = 'No file chosen';
+                    } else {
+                        // Handle JSON response
+                        const result = await response.json();
+                        showAlert('Registration submitted successfully! Check your email for the agreement.', 'success');
+                        document.getElementById('registrationForm').reset();
+                        document.querySelector('.file-name').textContent = 'No file chosen';
+                    }
                 } else {
+                    const result = await response.json();
                     showAlert(result.error || 'Registration failed. Please try again.', 'error');
                 }
             } catch (error) {
@@ -389,6 +671,15 @@
                 // Hide loading state
                 submitBtn.disabled = false;
                 loading.style.display = 'none';
+                formData = null;
+            }
+        });
+
+        // Close modal when clicking outside
+        window.addEventListener('click', function(e) {
+            const modal = document.getElementById('signatureModal');
+            if (e.target === modal) {
+                hideSignatureModal();
             }
         });
 
@@ -405,4 +696,4 @@
         }
     </script>
 </body>
-</html> 
+</html>
